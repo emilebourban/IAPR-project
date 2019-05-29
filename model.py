@@ -10,11 +10,44 @@ from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 from keras import backend as keras
 
 
+def ConvNet(input_size, pretrained_weights=None, summary=False):
+
+    inputs = Input(input_size)
+
+    conv1 = Conv2D(16, 5, activation='tanh', padding='valid', kernel_initializer = 'he_normal')(inputs)
+    pool1 = MaxPool2D(pool_size=(2, 2), padding='valid')(conv1)
+
+    conv2 = Conv2D(32, 5, activation='tanh', padding='valid', kernel_initializer = 'he_normal')(pool1)
+    pool2 = MaxPool2D(pool_size=(3, 3), padding='valid')(conv2)
+
+    conv3 = Conv2D(64, 5, activation='tanh', padding='valid', kernel_initializer = 'he_normal')(pool2)
+    pool3 = MaxPool2D(pool_size=(3, 3), padding='valid')(conv3)
+
+    flat = Flatten()(pool2)
+
+    dense1 = Dense(120, activation='tanh', kernel_initializer = 'he_normal')(flat)
+    drop1 = Dropout(0.1)(dense1)
+    dense2 = Dense(30, activation='tanh', kernel_initializer = 'he_normal')(drop1)
+    drop2 = Dropout(0.1)(dense2)
+    dense3 = Dense(2, activation='softmax', kernel_initializer = 'he_normal')(drop2)
+
+    model = Model(inputs=inputs, outputs=dense3)
+    model.compile(optimizer=Adam(lr=1e-4), loss='categorical_crossentropy', metrics=['accuracy'])
+
+    if summary:
+        model.summary()
+
+    if pretrained_weights is not None:
+        model.load_weights(pretrained_weights)
+
+    return model
+
+
 def smaller_UNet(pretrained_weights=None, input_size=(256,256,1)):
 
     inputs = Input(input_size)
-    conv1 = Conv2D(32, 5, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal', input_shape=(256, 256, 1))(inputs)
-    conv1 = Conv2D(32, 5, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv1)
+    conv1 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
+    conv1 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv1)
     pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
     conv2 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(pool1)
     conv2 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(conv2)
