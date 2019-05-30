@@ -7,53 +7,117 @@ import pickle
 # import tensorflow as tf
 # import keras
 
+
+
 import Utilities
 from model import *
-
-LOAD_MITES = False
-BUILD_MASKS = False
-
-
-def load_train_data(n_images, rand=True, plot_sample=False):
-    im_train, anno_train = Utilities.load_images_annotations('training')
-
-    pos_wins, neg_wins = [], []
-    for i in range(50):
-        print("\rAdding imgage {} to training".format(i), end=' '*10)
-        windows, pos = Utilities.sliding_window(im_train[i], [60]*2, 20)
-        temp_pos_wins, temp_neg_wins = Utilities.build_train_set(im_train[i], anno_train[i], windows, pos)
-        pos_wins.extend(temp_pos_wins)
-        neg_wins.extend(temp_neg_wins)
-
-    train_set = np.concatenate([pos_wins, neg_wins], axis=0)
-    train_target = np.concatenate([[1]*len(pos_wins), [0]*len(neg_wins)], axis=0)#[..., None]
-    train_target = np.stack([train_target, -(train_target-1)], axis=1)
-
-    # Randomization of the inputs
-    if rand:
-        rd_ind = np.random.choice(train_set.shape[0], train_set.shape[0])
-        train_set = train_set[rd_ind]
-        train_target = train_target[rd_ind]
-
-
-    if plot_sample:
-        n_sample = 20
-        plt.figure(figsize=(10, 10))
-        window_type = ['mite', 'no mite']
-        for i in range(n_sample):
-            plt.subplot(4, 5, i+1)
-            plt.imshow(train_set[rd_ind][i])
-            plt.title("{}".format(window_type[np.argmax(train_target[rd_ind][i])]))
-            plt.axis('off')
-        plt.suptitle('Ground truth over sample of window')
-        plt.show()
-
-    return train_set, train_target
 
 
 def main():
 
-    im_train, im_test, im_val, anno_train, anno_test, anno_val = Utilities.load_images_annotations()
+    #%% -------------------- Conv Net -------------------- %%#
+
+    net_filename = 'cnet_varroas_50_best.hdf5'
+
+    TRAINING = False
+    if TRAINING:
+        train_set, train_target = Utilities.load_set_target('testing', 800, [50]*2, 15, bootstrap=False,  plot_sample=False)
+
+        print("{} samples, {} channels".format(train_set.shape[0], train_set.shape[-1]))
+
+        cnet = ConvNet(train_set.shape[1:])
+
+        model_checkpoint = ModelCheckpoint(net_filename, monitor='loss', verbose=1, save_best_only=True)
+        cnet.fit(train_set.astype(np.float32), train_target, batch_size=50, epochs=15, callbacks=[model_checkpoint])
+
+    else:
+        cnet = load_model(net_filename)
+
+    TESTING = False
+    if TESTING:
+        im_test, anno_test = Utilities.load_images_annotations('training')
+
+        detection_bboxes = []
+        precision, recall, f1_score = [], [], []
+        start, end = 13, 20
+        for i, img in enumerate(im_test[start:end]):
+            print("\rImage: {}".format(i), end=' '*20)
+            windows, positions = Utilities.sliding_window(img, [50]*2, 10)
+            pred = cnet.predict(np.array(windows))
+
+            pred_class = np.argmax(pred, axis=1)
+
+            bboxes = Utilities.bbox_from_net_predictions(img, windows, positions, pred_class, anno_test[i+start], debug=True)
+            detection_bboxes.append(bboxes)
+            
+            if False:
+                p, r, f1 = Utilities.test_detection(bboxes, anno_test[i+start])
+                precision.append(p)
+                recall.append(r)
+                f1_score.append(f1)
+        
+        pickle.dump(detection_bboxes, open('detection_bboxes.pkl', mode='wb'))
+        print(np.mean(precision), np.mean(recall), np.mean(f1_score))
+
+    COMP = True
+    if COMP:
+        im_comp, annotations, names = Utilities.load_images_annotations('testing')
+        assert len(im_comp) == len(names), '{}, {}'.format(len(im_comp),  len(names))
+
+        comp_pred = {}
+
+        for i, img in enumerate(im_comp):
+            print("\rImage: {}".format(i), end=' '*20)
+            windows, positions = Utilities.sliding_window(img, [50]*2, 10)
+            pred = cnet.predict(np.array(windows))
+
+            pred_class = np.argmax(pred, axis=1)
+            bboxes = Utilities.bbox_from_net_predictions(img, windows, positions, pred_class, competition=True)
+
+            comp_pred[names[i]] = bboxes
+            print(comp_pred[names[i]])
+
+            pickle.dump(comp_pred, open('train_predictions.pkl', mode='wb'))
+
+    Utilities.generate_pred_json(comp_pred, tag='test')
+
+
+
+
+
+
+    # im_val, anno_val = Utilities.load_images_annotations('training')
+    # nb_val = 0
+    # windows_val, positions_val = Utilities.sliding_window(im_val[nb_val], [60]*2, 20)
+
+    # pred_val = np.argmax(cnet.predict(np.array(windows_val)), axis=1)
+    # print(pred_val)
+
+    # wins_detect, pos_detect = [], []
+    # for i in range(len(windows_val)):
+    #     if pred_val[i] == 0:
+    #         wins_detect.append(windows_val[i])
+    #         pos_detect.append(positions_val[i])
+
+    # detection = np.zeros(im_val[nb_val].shape[:-1])
+
+    # for pos in pos_detect:
+    #     detection[pos[0][0]:pos[0][0]+pos[1][0], pos[0][1]:pos[0][1]+pos[1][1]] += 10
+    
+    # thr_detect = label((detection > 60) )
+    # plt.figure(figsize=(10, 10))
+    # plt.imshow(thr_detect.astype(np.int8), cmap='viridis')
+
+    # pred_box = []
+    # for prop in regionprops(thr_detect.astype(np.int8)):
+    #     pred_box.append((int(prop.centroid[1]-15), int(prop.centroid[0]-15), 30, 30))
+
+    # print(pred_box)
+
+    # Utilities.display_detection(im_val[nb_val], windows=wins_detect, pos=pos_detect, annotations=anno_val[nb_val])
+    
+    plt.show()
+
 
     # mites = Utilities.get_mites(im_train, anno_train, save=True) if LOAD_MITES else pickle.load(open('data/extracted_mites.pkl', mode='rb'))
 
@@ -80,46 +144,6 @@ def main():
 
     # model_checkpoint = ModelCheckpoint('unet_varroas.hdf5', monitor='loss', verbose=1, save_best_only=True)
     # unet.fit(train_set, train_target, batch_size=10, epochs=5, callbacks=[model_checkpoint])
-
-
-
-
-
-
-    # use_nbr = 771
-    # use_img, use_anno = im_train[use_nbr], anno_train[use_nbr]
-
-    # windows, pos = Utilities.sliding_window(use_img, [60]*2, 20)
-
-    # plot_wins = True
-    # if plot_wins:
-    #     pos_windows, pos_positions, neg_windows, neg_positions = Utilities.build_train_set(use_img, use_anno, windows, pos, return_pos=True)
-
-    #     Utilities.display_detection(use_img, pos_windows, pos_positions, annotations=use_anno)
-    #     plt.show()
-
-    # pos_wins, neg_wins = [], []
-    # for i in range(50):
-    #     print("\rAdding imgage {} to training".format(i), end=' '*10)
-    #     windows, pos = Utilities.sliding_window(im_train[i], [60]*2, 20)
-    #     temp_pos_wins, temp_neg_wins = Utilities.build_train_set(im_train[i], anno_train[i], windows, pos)
-    #     pos_wins.extend(temp_pos_wins)
-    #     neg_wins.extend(temp_neg_wins)
-
-    # train_set = np.concatenate([pos_wins, neg_wins], axis=0)
-    # train_target = np.concatenate([[1]*len(pos_wins), [0]*len(neg_wins)], axis=0)#[..., None]
-    # train_target = np.stack([train_target, -(train_target-1)], axis=1)
-
-
-
-    train_set, train_target = load_train_data(50, plot_sample=True)
-
-    print(train_set.shape, train_target.shape)
-
-    cnet = ConvNet(train_set.shape[1:])
-
-    model_checkpoint = ModelCheckpoint('cnet_varroas.hdf5', monitor='loss', verbose=1, save_best_only=True)
-    cnet.fit(train_set.astype(np.float32), train_target, batch_size=20, epochs=5, callbacks=[model_checkpoint])
     
 
 if __name__ == '__main__':
